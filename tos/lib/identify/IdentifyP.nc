@@ -2,10 +2,10 @@
  * @author Raido Pahtma
  * @license Thinnect
  */
-generic module IdentifyP(uint32_t g_indentify_time_s, uint32_t g_blink_period_s) {
+generic module IdentifyP(uint32_t time_indentify_s, uint32_t period_blink_s, uint32_t time_boot_indicate_s) {
 	uses {
-		interface GeneralIO as SwitchIO;
-		interface GpioInterrupt as SwitchInterrupt;
+		interface GeneralIO as ButtonIO;
+		interface GpioInterrupt as ButtonInterrupt;
 
 		interface StdControl as IndicatorControl;
 
@@ -49,12 +49,17 @@ implementation {
 	bool m_blink = FALSE;
 
 	event void Boot.booted() {
-		call SwitchIO.makeInput();
-		call SwitchIO.set(); // Has external pullup also
+		call ButtonIO.makeInput();
+		call ButtonIO.set(); // pull-up
 
-		call SwitchInterrupt.enableFallingEdge();
+		call ButtonInterrupt.enableFallingEdge();
 
-		if(g_blink_period_s > 0) {
+		if(time_boot_indicate_s > 0) {
+			m_blink = TRUE;
+			call IndicatorControl.start();
+			call BlinkTimer.startOneShot(SEC_TMILLI(time_boot_indicate_s));
+		}
+		else if(period_blink_s > 0) {
 			call BlinkTimer.startOneShot(0);
 		}
 	}
@@ -63,7 +68,9 @@ implementation {
 		if(m_blink) {
 			m_blink = FALSE;
 			call IndicatorControl.stop();
-			call BlinkTimer.startOneShot(SEC_TMILLI(g_blink_period_s));
+			if(period_blink_s > 0) {
+				call BlinkTimer.startOneShot(SEC_TMILLI(period_blink_s));
+			}
 		} else {
 			m_blink = TRUE;
 			call IndicatorControl.start();
@@ -75,21 +82,21 @@ implementation {
 		m_active = FALSE;
 		m_blink = FALSE;
 		call IndicatorControl.stop();
-		call SwitchInterrupt.enableFallingEdge();
-		if(g_blink_period_s > 0) {
-			call BlinkTimer.startOneShot(SEC_TMILLI(g_blink_period_s));
+		call ButtonInterrupt.enableFallingEdge();
+		if(period_blink_s > 0) {
+			call BlinkTimer.startOneShot(SEC_TMILLI(period_blink_s));
 		}
 	}
 
 	task void fired() {
 		m_active = TRUE;
 		call BlinkTimer.stop();
-		call IdentifyTimer.startOneShot(SEC_TMILLI(g_indentify_time_s));
+		call IdentifyTimer.startOneShot(SEC_TMILLI(time_indentify_s));
 		call IndicatorControl.start();
 	}
 
-	async event void SwitchInterrupt.fired() {
-		call SwitchInterrupt.disable();
+	async event void ButtonInterrupt.fired() {
+		call ButtonInterrupt.disable();
 		post fired();
 	}
 
@@ -144,5 +151,9 @@ implementation {
 
 		return msg;
 	}
+
+	default async command void ButtonIO.makeInput() { }
+	default async command void ButtonIO.set() { }
+	default async command error_t ButtonInterrupt.enableFallingEdge() { return ELAST; }
 
 }
