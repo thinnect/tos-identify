@@ -13,6 +13,7 @@ of an LED that otherwise does something else.
 
 * Include the repository as a submodule.
 * Include the tos/lib/identify folder.
+* Include the tos/lib/indicators folder.
 * Include IdentifyC in your TinyOS application.
 
 ### Who do I talk to? ###
