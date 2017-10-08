@@ -2,6 +2,7 @@
  * @author Raido Pahtma
  * @license Thinnect
  */
+#include "IdentifyProtocol.h"
 generic module IdentifyP(uint32_t time_indentify_s, uint32_t period_blink_s, uint32_t time_boot_indicate_s) {
 	uses {
 		interface GeneralIO as ButtonIO;
@@ -25,22 +26,6 @@ implementation {
 	#define __MODUUL__ "idntf"
 	#define __LOG_LEVEL__ ( LOG_LEVEL_LEDControlP & BASE_LOG_LEVEL )
 	#include "log.h"
-
-	enum {
-		HEADER_STATUS = 0x00,
-		HEADER_CONTROL = 0xF0,
-		HEADER_REPORT = 0xF1
-	};
-
-	typedef nx_struct {
-		nx_uint8_t header;
-		nx_uint8_t value;
-	} control_msg_t;
-
-	typedef nx_struct {
-		nx_uint8_t header;
-		nx_uint8_t value;
-	} status_msg_t;
 
 	message_t m_msg;
 	am_addr_t m_client = 0;
