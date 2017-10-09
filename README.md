@@ -13,16 +13,16 @@ changing the behaviour of an LED that otherwise does something else.
 
 The IDFY protocol mainly consists of control and status messages. Control
 messages are sent in order to get the target to perform the identify action.
-The target respons with a status message that indicates the current status of
+The target responds with a status message that indicates the current status of
 the identify action and the time remaining until the end of the current action.
-Additionally it is possible to separately query the device for the current
-of the identify activity.
+Additionally it is possible to separately query the device for the state of
+an ongoing identify activity.
 
 #### Protocol version ####
 Every IDFY packet starts with the protocol version byte. The version byte is
 split into two 4-bit values, indicating the major and minor versions of the
-protocol, semantic versioning principles are used. When a device receives a
-packet from an incompatible version, then a version error response is sent.
+protocol, semantic versioning principles are used. A version error response
+is sent when a device receives a packet from an incompatible version.
 
 #### Protocol authorization ####
 Control messages need to contain an authorization value. This is a 16 byte
@@ -41,7 +41,7 @@ idfy_control_msg_t with header value 0x02.
 Set value to 1 to start the IDFY action, set to 0 to stop an active IDFY.
 Specify a time period in milliseconds for the action to take place. The time
 period value is automatically corrected by the target if it is too short and
-may be limited to some device specific maximum value.
+may be limited to some device specific maximum value (usually 5 mintues).
 
 ##### IDFY request #####
 idfy_request_msg_t with header value 0x01.
@@ -71,11 +71,8 @@ time is usually limited to 5 minutes.
 
 ### How do I get set up? ###
 
+For TinyOS development:
 * Include the repository as a submodule.
 * Include the tos/lib/identify folder.
 * Include the tos/lib/indicators folder.
 * Include IdentifyC in your TinyOS application.
-
-### Who do I talk to? ###
-
-* Raido Pahtma raido@thinnect.com
