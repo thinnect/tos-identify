@@ -1,6 +1,6 @@
 /**
  * @author Raido Pahtma
- * @license Thinnect
+ * @license MIT
  */
 #include "IdentifyProtocol.h"
 generic module IdentifyP(uint32_t time_indentify_s, uint32_t period_blink_s, uint32_t time_boot_indicate_s) {
@@ -89,7 +89,8 @@ implementation {
 		if(m_radio_busy == FALSE) {
 			status_msg_t* msg = (status_msg_t*)call AMSend.getPayload(&m_msg, sizeof(status_msg_t));
 			call Packet.clear(&m_msg);
-			msg->header = HEADER_REPORT;
+			msg->version = IDFY_VERSION;
+			msg->header = IDFY_HEADER_REPORT;
 			msg->value = m_active ? 100: 0;
 
 			if(call AMSend.send(m_client, &m_msg, sizeof(status_msg_t)) == SUCCESS) {
@@ -109,11 +110,11 @@ implementation {
 		if(m_radio_busy == FALSE) {
 			uint8_t header = ((uint8_t*)payload)[0];
 			switch(header) {
-				case HEADER_STATUS:
+				case IDFY_HEADER_STATUS:
 					m_client = call AMPacket.source(msg);
 					post sendStatus();
 					break;
-				case HEADER_CONTROL:
+				case IDFY_HEADER_CONTROL:
 					if(len == sizeof(control_msg_t)) {
 						control_msg_t* message = (control_msg_t*)payload;
 						info1("cntrl %u", message->value);

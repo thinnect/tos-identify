@@ -3,7 +3,7 @@
  * from a physical button on the device. Button wiring is optional.
  *
  * @author Raido Pahtma
- * @license Thinnect
+ * @license MIT
  */
 #include "IdentifyProtocol.h"
 #ifdef STACK_BEAT
