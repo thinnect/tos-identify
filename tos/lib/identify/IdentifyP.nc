@@ -1,145 +1,154 @@
 /**
+ * Identify protocol module, trigger identification activity from radio packets.
+ *
  * @author Raido Pahtma
  * @license MIT
  */
 #include "IdentifyProtocol.h"
-generic module IdentifyP(uint32_t time_indentify_s, uint32_t period_blink_s, uint32_t time_boot_indicate_s) {
+generic module IdentifyP(uint32_t min_indentify_s, uint32_t max_indentify_s) {
 	uses {
-		interface GeneralIO as ButtonIO;
-		interface GpioInterrupt as ButtonInterrupt;
-
 		interface StdControl as IndicatorControl;
 
-		interface Timer<TMilli> as IdentifyTimer;
-		interface Timer<TMilli> as BlinkTimer;
+		interface Timer<TMilli>;
 
 		interface AMSend;
 		interface AMPacket;
 		interface Packet;
 		interface Receive;
 
-		interface Boot;
+		interface Pool<message_t> as MsgPool;
+
+		// TODO auth retrieval interface
 	}
 }
 implementation {
 
 	#define __MODUUL__ "idntf"
-	#define __LOG_LEVEL__ ( LOG_LEVEL_LEDControlP & BASE_LOG_LEVEL )
+	#define __LOG_LEVEL__ ( LOG_LEVEL_IdentifyP & BASE_LOG_LEVEL )
 	#include "log.h"
 
-	message_t m_msg;
+	message_t* m_msg = NULL;
 	am_addr_t m_client = 0;
-	bool m_radio_busy = FALSE;
-	bool m_active = FALSE;
-	bool m_blink = FALSE;
 
-	event void Boot.booted() {
-		call ButtonIO.makeInput();
-		call ButtonIO.set(); // pull-up
+	uint8_t m_auth[16] = {'s', 't', 'r', 'e', 'e', 't', 'l', 'i', 'g', 'h', 't', 's', 0 ,  0 ,  0 ,  0 };
 
-		call ButtonInterrupt.enableFallingEdge();
+	void sendMessage(am_addr_t destination, uint8_t err_idfy) {
+		if(m_msg == NULL) {
+			m_msg = call MsgPool.get();
+			if(m_msg != NULL) {
+				uint8_t length = 0;
 
-		if(time_boot_indicate_s > 0) {
-			m_blink = TRUE;
-			call IndicatorControl.start();
-			call BlinkTimer.startOneShot(SEC_TMILLI(time_boot_indicate_s));
-		}
-		else if(period_blink_s > 0) {
-			call BlinkTimer.startOneShot(0);
-		}
-	}
+				call Packet.clear(m_msg);
 
-	event void BlinkTimer.fired() {
-		if(m_blink) {
-			m_blink = FALSE;
-			call IndicatorControl.stop();
-			if(period_blink_s > 0) {
-				call BlinkTimer.startOneShot(SEC_TMILLI(period_blink_s));
+				switch(err_idfy) {
+					case IDFY_ERROR_GENERIC:
+					case IDFY_ERROR_VERSION:
+					case IDFY_ERROR_UNAUTHORIZED:
+					case IDFY_ERROR_PACKET:
+					{
+						idfy_error_msg_t* p = (idfy_error_msg_t*)call AMSend.getPayload(m_msg, sizeof(idfy_error_msg_t));
+						p->version = IDFY_VERSION;
+						p->header = IDFY_HEADER_ERROR;
+						p->code = err_idfy;
+						p->msg_len = 0;
+						length = sizeof(idfy_error_msg_t);
+					}
+					break;
+					default: // IDFY_ERROR_NONE
+					{
+						idfy_status_msg_t* p = (idfy_status_msg_t*)call AMSend.getPayload(m_msg, sizeof(idfy_status_msg_t));
+						p->version = IDFY_VERSION;
+						p->header = IDFY_HEADER_REPORT;
+						if(call Timer.isRunning()) {
+							p->remaining = call Timer.gett0() + call Timer.getdt() - call Timer.getNow();
+							p->value = 100;
+						}
+						else {
+							p->remaining = 0;
+							p->value = 0;
+						}
+						length = sizeof(idfy_status_msg_t);
+					}
+				}
+
+				if(call AMSend.send(destination, m_msg, length) != SUCCESS) {
+					warn1("snd");
+					call MsgPool.put(m_msg);
+					m_msg = NULL;
+				}
 			}
-		} else {
-			m_blink = TRUE;
-			call IndicatorControl.start();
-			call BlinkTimer.startOneShot(10);
 		}
 	}
 
-	event void IdentifyTimer.fired() {
-		m_active = FALSE;
-		m_blink = FALSE;
+	event void Timer.fired() {
 		call IndicatorControl.stop();
-		call ButtonInterrupt.enableFallingEdge();
-		if(period_blink_s > 0) {
-			call BlinkTimer.startOneShot(SEC_TMILLI(period_blink_s));
-		}
-	}
-
-	task void fired() {
-		m_active = TRUE;
-		call BlinkTimer.stop();
-		call IdentifyTimer.startOneShot(SEC_TMILLI(time_indentify_s));
-		call IndicatorControl.start();
-	}
-
-	async event void ButtonInterrupt.fired() {
-		call ButtonInterrupt.disable();
-		post fired();
-	}
-
-	task void sendStatus() {
-		if(m_radio_busy == FALSE) {
-			status_msg_t* msg = (status_msg_t*)call AMSend.getPayload(&m_msg, sizeof(status_msg_t));
-			call Packet.clear(&m_msg);
-			msg->version = IDFY_VERSION;
-			msg->header = IDFY_HEADER_REPORT;
-			msg->value = m_active ? 100: 0;
-
-			if(call AMSend.send(m_client, &m_msg, sizeof(status_msg_t)) == SUCCESS) {
-				debug1("snd");
-				m_radio_busy = TRUE;
-			}
-		}
-		else post sendStatus();
+		sendMessage(m_client, IDFY_ERROR_NONE);
 	}
 
 	event void AMSend.sendDone(message_t* m, error_t err) {
 		debug1("snt %u", err);
-		m_radio_busy = FALSE;
+		call MsgPool.put(m_msg);
+		m_msg = NULL;
+	}
+
+	bool authGood(uint8_t* auth) {
+		return memcmp(auth, m_auth, sizeof(m_auth)) == 0;
 	}
 
 	event message_t* Receive.receive(message_t* msg, void* payload, uint8_t len) {
-		if(m_radio_busy == FALSE) {
-			uint8_t header = ((uint8_t*)payload)[0];
-			switch(header) {
-				case IDFY_HEADER_STATUS:
-					m_client = call AMPacket.source(msg);
-					post sendStatus();
-					break;
-				case IDFY_HEADER_CONTROL:
-					if(len == sizeof(control_msg_t)) {
-						control_msg_t* message = (control_msg_t*)payload;
-						info1("cntrl %u", message->value);
-						if(message->value == 0) {
-							call IdentifyTimer.startOneShot(0);
-						}
-						else {
-							post fired();
-						}
-						m_client = call AMPacket.source(msg);
-						post sendStatus();
+		if(m_msg == NULL) {
+			if(len > sizeof(idfy_request_msg_t)) {
+				idfy_request_msg_t* p = ((idfy_request_msg_t*)payload);
+				if(p->version == IDFY_VERSION) {
+					switch(p->header) {
+						case IDFY_HEADER_STATUS:
+							sendMessage(call AMPacket.source(msg), IDFY_ERROR_NONE);
+							break;
+						case IDFY_HEADER_CONTROL:
+							if(len == sizeof(idfy_control_msg_t)) {
+								idfy_control_msg_t* cm = (idfy_control_msg_t*)payload;
+								if(authGood((uint8_t*)(cm->auth))) {
+									info1("cntrl %u", cm->value);
+									m_client = call AMPacket.source(msg);
+									if(cm->value == 0) {
+										call Timer.startOneShot(0);
+									}
+									else {
+										uint32_t period = cm->period;
+										if(period < SEC_TMILLI(min_indentify_s)) {
+											period = SEC_TMILLI(min_indentify_s);
+										}
+										else if(period > SEC_TMILLI(max_indentify_s)) {
+											period = SEC_TMILLI(max_indentify_s);
+										}
+										call Timer.startOneShot(period);
+										call IndicatorControl.start();
+										sendMessage(m_client, IDFY_ERROR_NONE);
+									}
+								}
+								else {
+									sendMessage(call AMPacket.source(msg), IDFY_ERROR_UNAUTHORIZED);
+									// TODO block for some time to limit bruteforce
+								}
+							}
+							else err1("len %u", len);
+							break;
+						default:
+							warn1("hdr %02X", header);
+							sendMessage(call AMPacket.source(msg), IDFY_ERROR_PACKET);
 					}
-					else err1("len %u", len);
-					break;
-				default:
-					warn1("hdr %02X", header);
+				}
+				else {
+					sendMessage(call AMPacket.source(msg), IDFY_ERROR_VERSION);
+				}
+			}
+			else {
+				sendMessage(call AMPacket.source(msg), IDFY_ERROR_PACKET);
 			}
 		}
 		else warn1("rbsy");
 
 		return msg;
 	}
-
-	default async command void ButtonIO.makeInput() { }
-	default async command void ButtonIO.set() { }
-	default async command error_t ButtonInterrupt.enableFallingEdge() { return ELAST; }
 
 }

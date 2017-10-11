@@ -3,7 +3,7 @@
 
 #define AMID_IDENTIFY_PROTOCOL 0xEF
 
-#define IDFY_VERSION = 0x02 // Version 0.2
+#define IDFY_VERSION 0x02 // Version 0.2
 
 enum IdentifyProtocolHeaders {
 	IDFY_HEADER_STATUS  = 0x01,
@@ -21,8 +21,8 @@ typedef nx_struct {
 } idfy_control_msg_t;
 
 typedef nx_struct {
-	nx_uint8_t version;  // version is a MAJOR.MINOR 4bit.4bit value
-	nx_uint8_t header;   // packet type identifier
+	nx_uint8_t version; // version is a MAJOR.MINOR 4bit.4bit value
+	nx_uint8_t header;  // packet type identifier
 } idfy_request_msg_t;
 
 typedef nx_struct {
@@ -41,6 +41,7 @@ typedef nx_struct {
 } idfy_error_msg_t;
 
 enum IdentifyProtocolErrors {
+	IDFY_ERROR_NONE         = 0,
 	IDFY_ERROR_GENERIC      = 1,
 	IDFY_ERROR_VERSION      = 2,
 	IDFY_ERROR_UNAUTHORIZED = 3,
