@@ -18,7 +18,7 @@ generic module IdentifyP(uint32_t min_indentify_s, uint32_t max_indentify_s) {
 
 		interface Pool<message_t> as MsgPool;
 
-		// TODO auth retrieval interface
+		interface CheckAuth;
 	}
 }
 implementation {
@@ -27,18 +27,16 @@ implementation {
 	#define __LOG_LEVEL__ ( LOG_LEVEL_IdentifyP & BASE_LOG_LEVEL )
 	#include "log.h"
 
-	message_t* m_msg = NULL;
+	bool m_radio_busy = FALSE;
 	am_addr_t m_client = 0;
 
-	uint8_t m_auth[16] = {'s', 't', 'r', 'e', 'e', 't', 'l', 'i', 'g', 'h', 't', 's', 0 ,  0 ,  0 ,  0 };
-
 	void sendMessage(am_addr_t destination, uint8_t err_idfy) {
-		if(m_msg == NULL) {
-			m_msg = call MsgPool.get();
-			if(m_msg != NULL) {
+		if(m_radio_busy == FALSE) {
+			message_t* msg = call MsgPool.get();
+			if(msg != NULL) {
 				uint8_t length = 0;
 
-				call Packet.clear(m_msg);
+				call Packet.clear(msg);
 
 				switch(err_idfy) {
 					case IDFY_ERROR_GENERIC:
@@ -46,35 +44,41 @@ implementation {
 					case IDFY_ERROR_UNAUTHORIZED:
 					case IDFY_ERROR_PACKET:
 					{
-						idfy_error_msg_t* p = (idfy_error_msg_t*)call AMSend.getPayload(m_msg, sizeof(idfy_error_msg_t));
-						p->version = IDFY_VERSION;
-						p->header = IDFY_HEADER_ERROR;
-						p->code = err_idfy;
-						p->msg_len = 0;
-						length = sizeof(idfy_error_msg_t);
+						idfy_error_msg_t* p = (idfy_error_msg_t*)call AMSend.getPayload(msg, sizeof(idfy_error_msg_t));
+						if(p != NULL) {
+							p->version = IDFY_VERSION;
+							p->header = IDFY_HEADER_ERROR;
+							p->code = err_idfy;
+							p->msg_len = 0;
+							length = sizeof(idfy_error_msg_t);
+						}
 					}
 					break;
 					default: // IDFY_ERROR_NONE
 					{
-						idfy_status_msg_t* p = (idfy_status_msg_t*)call AMSend.getPayload(m_msg, sizeof(idfy_status_msg_t));
-						p->version = IDFY_VERSION;
-						p->header = IDFY_HEADER_REPORT;
-						if(call Timer.isRunning()) {
-							p->remaining = call Timer.gett0() + call Timer.getdt() - call Timer.getNow();
-							p->value = 100;
+						idfy_status_msg_t* p = (idfy_status_msg_t*)call AMSend.getPayload(msg, sizeof(idfy_status_msg_t));
+						if(p != NULL) {
+							p->version = IDFY_VERSION;
+							p->header = IDFY_HEADER_REPORT;
+							if(call Timer.isRunning()) {
+								p->remaining = call Timer.gett0() + call Timer.getdt() - call Timer.getNow();
+								p->value = 100;
+							}
+							else {
+								p->remaining = 0;
+								p->value = 0;
+							}
+							length = sizeof(idfy_status_msg_t);
 						}
-						else {
-							p->remaining = 0;
-							p->value = 0;
-						}
-						length = sizeof(idfy_status_msg_t);
 					}
 				}
 
-				if(call AMSend.send(destination, m_msg, length) != SUCCESS) {
+				if((length > 0) && (call AMSend.send(destination, msg, length) == SUCCESS)) {
+					m_radio_busy = TRUE;
+				}
+				else {
 					warn1("snd");
-					call MsgPool.put(m_msg);
-					m_msg = NULL;
+					call MsgPool.put(msg);
 				}
 			}
 		}
@@ -85,18 +89,14 @@ implementation {
 		sendMessage(m_client, IDFY_ERROR_NONE);
 	}
 
-	event void AMSend.sendDone(message_t* m, error_t err) {
+	event void AMSend.sendDone(message_t* msg, error_t err) {
 		debug1("snt %u", err);
-		call MsgPool.put(m_msg);
-		m_msg = NULL;
-	}
-
-	bool authGood(uint8_t* auth) {
-		return memcmp(auth, m_auth, sizeof(m_auth)) == 0;
+		call MsgPool.put(msg);
+		m_radio_busy = FALSE;
 	}
 
 	event message_t* Receive.receive(message_t* msg, void* payload, uint8_t len) {
-		if(m_msg == NULL) {
+		if(m_radio_busy == FALSE) {
 			if(len > sizeof(idfy_request_msg_t)) {
 				idfy_request_msg_t* p = ((idfy_request_msg_t*)payload);
 				if(p->version == IDFY_VERSION) {
@@ -107,7 +107,7 @@ implementation {
 						case IDFY_HEADER_CONTROL:
 							if(len == sizeof(idfy_control_msg_t)) {
 								idfy_control_msg_t* cm = (idfy_control_msg_t*)payload;
-								if(authGood((uint8_t*)(cm->auth))) {
+								if(call CheckAuth.good((uint8_t*)(cm->auth), 16)) {
 									info1("cntrl %u", cm->value);
 									m_client = call AMPacket.source(msg);
 									if(cm->value == 0) {
