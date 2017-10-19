@@ -41,4 +41,7 @@ implementation {
 	components new TimerMilliC() as IdentifyTimer;
 	IdentifyP.Timer -> IdentifyTimer;
 
+	components AuthPasswordParameterC;
+	IdentifyP.CheckAuth -> AuthPasswordParameterC;
+
 }
