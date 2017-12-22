@@ -5,6 +5,7 @@
  * @license MIT
  */
 #include "IdentifyProtocol.h"
+#include "sec_tmilli.h"
 generic module IdentifyP(uint32_t min_indentify_s, uint32_t max_indentify_s) {
 	uses {
 		interface StdControl as IndicatorControl;
